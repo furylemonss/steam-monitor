@@ -2,3 +2,9 @@ bins/
 __pycache__/
 *.pyc
 .venv/
+
+# Generated output lives on its own branch.
+ipc/
+pattern/
+protuf/
+

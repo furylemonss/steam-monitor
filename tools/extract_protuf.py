@@ -84,32 +84,39 @@ def iter_descriptors(buf: bytes):
             return
         start = i + 1
         end = i + len(NAME_MARK)
-        name_start = i
-        while name_start > 0 and 32 <= buf[name_start - 1] < 127:
-            name_start -= 1
-        name_len = end - name_start
-        if name_len <= len(NAME_MARK) or name_start < 2:
-            continue
-        decoded_len = _varint(buf, name_start - 1)
-        if decoded_len is None or decoded_len[0] != name_len or decoded_len[1] != name_start:
-            continue
-        varint_at = name_start - 1
-        tag = varint_at - (decoded_len[1] - varint_at)
-        if tag < 0 or buf[tag] != 0x0A:
-            continue
         best = None
-        for stop in _field_ends(buf, tag):
-            if stop - tag < MIN_SIZE:
-                continue
-            if stop - tag > MAX_SPAN:
+        name_start = i
+        while name_start > 1 and 32 <= buf[name_start - 1] < 127:
+            name_start -= 1
+        while name_start < end:
+            name_len = end - name_start
+            matched = False
+            for vlen in (1, 2, 3):
+                vpos = name_start - vlen
+                if vpos < 1:
+                    continue
+                decoded_len = _varint(buf, vpos)
+                if decoded_len is None or decoded_len[0] != name_len or decoded_len[1] != name_start:
+                    continue
+                if buf[vpos - 1] != 0x0A:
+                    continue
+                tag = vpos - 1
+                matched = True
+                for stop in _field_ends(buf, tag):
+                    if stop - tag < MIN_SIZE or stop - tag > MAX_SPAN:
+                        continue
+                    fd = descriptor_pb2.FileDescriptorProto()
+                    try:
+                        fd.ParseFromString(buf[tag:stop])
+                    except Exception:
+                        continue
+                    if fd.name.endswith(".proto") and (fd.syntax or fd.message_type or fd.enum_type):
+                        best = fd
+                if matched:
+                    break
+            if best is not None:
                 break
-            fd = descriptor_pb2.FileDescriptorProto()
-            try:
-                fd.ParseFromString(buf[tag:stop])
-            except Exception:
-                continue
-            if fd.name.endswith(".proto") and fd.syntax:
-                best = fd
+            name_start += 1
         if best is not None:
             yield best
 

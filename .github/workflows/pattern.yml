@@ -56,7 +56,7 @@ jobs:
             PUBLISHED=""
           fi
           set +e
-          python3 tools/fetch_client.py --out bins/ --channels stable beta --published-shas $PUBLISHED --versions-file pattern/versions.json
+          python3 tools/fetch_client.py --out bins/ --channels stable beta --published-shas $PUBLISHED --versions-file versions.json
           CODE=$?
           set -e
           if [ "$CODE" -eq 2 ]; then
@@ -138,7 +138,7 @@ jobs:
         env:
           TZ: UTC
         run: |
-          python3 -c "import json,os; print(json.dumps({'versions': json.load(open('pattern/versions.json')), 'repository': os.environ['GITHUB_REPOSITORY']}))" > /tmp/readme_data.json
+          python3 -c "import json,os; print(json.dumps({'versions': json.load(open('versions.json')), 'repository': os.environ['GITHUB_REPOSITORY']}))" > /tmp/readme_data.json
           npx -y knap@0.4.2 render templates/readme.md \
             --data /tmp/readme_data.json --output README.md
           ver() { python3 -c "import json; print(json.load(open('bins/$1/versions.json'))['version'])" 2>/dev/null || echo skipped; }
@@ -146,7 +146,7 @@ jobs:
           git config user.name "furylemons"
           git config user.email "furylemons@users.noreply.github.com"
 
-          git add pattern/versions.json README.md
+          git add versions.json README.md
           git commit -m "$MSG"
           MAIN=$(git rev-parse HEAD)
           git push origin "$MAIN:refs/heads/main"
@@ -156,9 +156,13 @@ jobs:
             shift
             index=$(mktemp)
             export GIT_INDEX_FILE="$index"
-            git read-tree --empty
+            if git rev-parse --verify "origin/$branch" >/dev/null 2>&1; then
+              git read-tree "origin/$branch"
+            else
+              git read-tree --empty
+            fi
             for path in "$@"; do
-              git checkout "$MAIN" -- "$path"
+              git checkout "$MAIN" -- "$path" 2>/dev/null || true
             done
             git add "$@"
             newtree=$(git write-tree)
