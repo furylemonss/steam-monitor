@@ -28,8 +28,8 @@ jobs:
         with:
           python-version: "3.x"
 
- - name: Install protobuf
- run: python3 -m pip install --disable-pip-version-check protobuf
+      - name: Install protobuf
+        run: python3 -m pip install --disable-pip-version-check protobuf
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -92,16 +92,16 @@ jobs:
             CODE_SUI=$?
             python3 tools/resolve_ipc.py resolve \
               --dll "bins/$channel/steamclient64.dll" \
-              --out-dir ipc/ > "resolve_ipc_$channel.log" "resolve_proto_sc_$channel.log" "resolve_proto_sui_$channel.log" 2>&1
+              --out-dir ipc/ > "resolve_ipc_$channel.log" 2>&1
             CODE_IPC=$?
- python3 tools/extract_protuf.py \
- --dll "bins/$channel/steamclient64.dll" --side steamclient \
- --out-dir protuf/ > "resolve_proto_sc_$channel.log" 2>&1
- CODE_PSC=$?
- python3 tools/extract_protuf.py \
- --dll "bins/$channel/SteamUI.dll" --side steamui \
- --out-dir protuf/ > "resolve_proto_sui_$channel.log" 2>&1
- CODE_PSU=$?
+            python3 tools/extract_protuf.py \
+              --dll "bins/$channel/steamclient64.dll" --side steamclient \
+              --out-dir protuf/ > "resolve_proto_sc_$channel.log" 2>&1
+            CODE_PSC=$?
+            python3 tools/extract_protuf.py \
+              --dll "bins/$channel/SteamUI.dll" --side steamui \
+              --out-dir protuf/ > "resolve_proto_sui_$channel.log" 2>&1
+            CODE_PSU=$?
             set -e
             cat "resolve_sc_$channel.log" "resolve_sui_$channel.log" "resolve_ipc_$channel.log" "resolve_proto_sc_$channel.log" "resolve_proto_sui_$channel.log"
             grep -E '^FAIL ' "resolve_sc_$channel.log" "resolve_sui_$channel.log" "resolve_ipc_$channel.log" "resolve_proto_sc_$channel.log" "resolve_proto_sui_$channel.log" >> skips.txt || true
