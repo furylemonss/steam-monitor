@@ -1,0 +1,21 @@
+syntax = "";
+
+import "steammessages_base.proto";
+import "webuimessages_base.proto";
+
+option optimize_for = 1;
+option cc_generic_services = true;
+
+message CSystemManager_Hibernate_Request {
+}
+
+message CSystemManager_Hibernate_Response {
+}
+
+message CSystemManager_WriteFile_Request {
+ optional string path = 1;
+ optional bytes data = 2;
+}
+
+message CSystemManager_WriteFile_Response {
+}

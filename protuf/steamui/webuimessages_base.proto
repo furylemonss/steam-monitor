@@ -1,0 +1,18 @@
+syntax = "";
+
+import "enums.proto";
+import "steammessages_base.proto";
+import "google/protobuf/descriptor.proto";
+
+option optimize_for = 1;
+option cc_generic_services = true;
+
+enum EClientExecutionSite {
+ k_EClientExecutionSiteInvalid = 0;
+ k_EClientExecutionSiteSteamUI = 1;
+ k_EClientExecutionSiteClientdll = 2;
+ k_EClientExecutionSiteAny = 3;
+}
+
+message WebUINoResponse {
+}

@@ -1,0 +1,36 @@
+syntax = "";
+
+import "steammessages_base.proto";
+import "steammessages_unified_base.steamclient.proto";
+
+option cc_generic_services = true;
+
+message CTimedTrial_GetTimeRemaining_Request {
+ optional uint32 appid = 1;
+}
+
+message CTimedTrial_GetTimeRemaining_Response {
+ optional uint32 seconds_played = 1;
+ optional uint32 seconds_allowed = 2;
+ optional uint32 packageid = 3;
+ optional uint32 mastersub_appid = 4;
+}
+
+message CTimedTrial_RecordPlaytime_Request {
+ optional uint32 appid = 1;
+ optional uint32 seconds_played = 2;
+}
+
+message CTimedTrial_RecordPlaytime_Response {
+ optional uint32 seconds_played = 1;
+ optional uint32 seconds_allowed = 2;
+}
+
+message CTimedTrial_ResetPlaytime_Request {
+ optional uint32 appid = 1;
+}
+
+message CTimedTrial_ResetPlaytime_Response {
+ optional uint32 seconds_played = 1;
+ optional uint32 seconds_allowed = 2;
+}

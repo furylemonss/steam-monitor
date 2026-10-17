@@ -1,0 +1,19 @@
+syntax = "";
+
+import "google/protobuf/descriptor.proto";
+
+option optimize_for = 1;
+option cc_generic_services = true;
+
+enum EProtoExecutionSite {
+ k_EProtoExecutionSiteUnknown = 0;
+ k_EProtoExecutionSiteSteamClient = 2;
+}
+
+enum EProtoServiceType {
+ k_EProtoServiceTypeSteamMessages = 0;
+ k_EProtoServiceTypeVRGamepadUIMessages = 1;
+}
+
+message NoResponse {
+}
