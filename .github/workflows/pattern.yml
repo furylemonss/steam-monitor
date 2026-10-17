@@ -1,0 +1,182 @@
+name: Publish Pattern TOMLs
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: pattern
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  pattern:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.x"
+
+ - name: Install protobuf
+ run: python3 -m pip install --disable-pip-version-check protobuf
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24"
+
+      - name: Fetch client binaries
+        id: fetch
+        run: |
+          sha_of() { sha256sum "$1" | cut -d' ' -f1; }
+          git fetch origin pattern ipc protuf || true
+          PUBLISHED=""
+          if git rev-parse --verify origin/pattern >/dev/null 2>&1; then
+            PUBLISHED=$(git ls-tree -r --name-only origin/pattern -- pattern/steamui pattern/steamclient | sed -n 's|.*/\([0-9a-f]*\)\.toml$|\1|p' | sort -u | tr '\n' ' ')
+          fi
+          if git rev-parse --verify origin/ipc >/dev/null 2>&1; then
+            IPC_SHAS=$(git ls-tree -r --name-only origin/ipc -- ipc/steamclient | sed -n 's|.*/\([0-9a-f]*\)\.toml$|\1|p' | sort -u)
+            FILTERED=""
+            for sha in $PUBLISHED; do
+              echo "$IPC_SHAS" | grep -qx "$sha" && FILTERED="$FILTERED $sha"
+            done
+            PUBLISHED="$FILTERED"
+          else
+            PUBLISHED=""
+          fi
+          set +e
+          python3 tools/fetch_client.py --out bins/ --channels stable beta --published-shas $PUBLISHED --versions-file pattern/versions.json
+          CODE=$?
+          set -e
+          if [ "$CODE" -eq 2 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "$CODE" -ne 0 ]; then
+            exit "$CODE"
+          fi
+          CHANNELS=""
+          for channel in stable beta; do
+            if [ -f "bins/$channel/steamclient64.dll" ]; then
+              CHANNELS="$CHANNELS $channel"
+              echo "sha_sc_$channel=$(sha_of bins/$channel/steamclient64.dll)" >> "$GITHUB_OUTPUT"
+              echo "sha_sui_$channel=$(sha_of bins/$channel/SteamUI.dll)" >> "$GITHUB_OUTPUT"
+            fi
+          done
+          echo "channels=$CHANNELS" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve patterns + IPC
+        id: resolve
+        if: steps.fetch.outputs.skip != 'true'
+        run: |
+          : > skips.txt
+          CODE_ALL=0
+          for channel in ${STEPS_FETCH_OUTPUTS_CHANNELS}; do
+            set +e
+            python3 tools/resolve_patterns.py resolve \
+              --dll "bins/$channel/steamclient64.dll" --side steamclient \
+              --out-dir pattern/ > "resolve_sc_$channel.log" 2>&1
+            CODE_SC=$?
+            python3 tools/resolve_patterns.py resolve \
+              --dll "bins/$channel/SteamUI.dll" --side steamui \
+              --out-dir pattern/ > "resolve_sui_$channel.log" 2>&1
+            CODE_SUI=$?
+            python3 tools/resolve_ipc.py resolve \
+              --dll "bins/$channel/steamclient64.dll" \
+              --out-dir ipc/ > "resolve_ipc_$channel.log" "resolve_proto_sc_$channel.log" "resolve_proto_sui_$channel.log" 2>&1
+            CODE_IPC=$?
+ python3 tools/extract_protuf.py \
+ --dll "bins/$channel/steamclient64.dll" --side steamclient \
+ --out-dir protuf/ > "resolve_proto_sc_$channel.log" 2>&1
+ CODE_PSC=$?
+ python3 tools/extract_protuf.py \
+ --dll "bins/$channel/SteamUI.dll" --side steamui \
+ --out-dir protuf/ > "resolve_proto_sui_$channel.log" 2>&1
+ CODE_PSU=$?
+            set -e
+            cat "resolve_sc_$channel.log" "resolve_sui_$channel.log" "resolve_ipc_$channel.log" "resolve_proto_sc_$channel.log" "resolve_proto_sui_$channel.log"
+            grep -E '^FAIL ' "resolve_sc_$channel.log" "resolve_sui_$channel.log" "resolve_ipc_$channel.log" "resolve_proto_sc_$channel.log" "resolve_proto_sui_$channel.log" >> skips.txt || true
+            if [ "$CODE_SC" -ne 0 ] || [ "$CODE_SUI" -ne 0 ] || [ "$CODE_IPC" -ne 0 ] || [ "$CODE_PSC" -ne 0 ] || [ "$CODE_PSU" -ne 0 ]; then
+              CODE_ALL=1
+            fi
+          done
+          echo "code=$CODE_ALL" >> "$GITHUB_OUTPUT"
+        env:
+          STEPS_FETCH_OUTPUTS_CHANNELS: ${{ steps.fetch.outputs.channels }}
+
+      - name: File issue on unresolvable entries
+        if: steps.fetch.outputs.skip != 'true' && steps.resolve.outputs.code != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STABLE_SC: ${{ steps.fetch.outputs.sha_sc_stable }}
+          STABLE_SUI: ${{ steps.fetch.outputs.sha_sui_stable }}
+          BETA_SC: ${{ steps.fetch.outputs.sha_sc_beta }}
+          BETA_SUI: ${{ steps.fetch.outputs.sha_sui_beta }}
+        run: |
+          {
+            echo "Full log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo ""
+            echo "Nothing was published (block-on-failure). Triage the skipped entries by hand, then re-run with workflow_dispatch."
+            echo ""
+            cat skips.txt
+          } > issue_body.md
+          gh issue create \
+            --title "Pattern resolve blocked: stable ${STABLE_SC}/${STABLE_SUI}, beta ${BETA_SC}/${BETA_SUI}" \
+            --body-file issue_body.md
+
+      - name: Publish
+        if: steps.fetch.outputs.skip != 'true' && steps.resolve.outputs.code == '0'
+        env:
+          TZ: UTC
+        run: |
+          python3 -c "import json,os; print(json.dumps({'versions': json.load(open('pattern/versions.json')), 'repository': os.environ['GITHUB_REPOSITORY']}))" > /tmp/readme_data.json
+          npx -y knap@0.4.2 render templates/readme.md \
+            --data /tmp/readme_data.json --output README.md
+          ver() { python3 -c "import json; print(json.load(open('bins/$1/versions.json'))['version'])" 2>/dev/null || echo skipped; }
+          MSG="Update Steam rule patterns (stable $(ver stable), beta $(ver beta))"
+          git config user.name "furylemons"
+          git config user.email "furylemons@users.noreply.github.com"
+
+          git add pattern/versions.json README.md
+          git commit -m "$MSG"
+          MAIN=$(git rev-parse HEAD)
+          git push origin "$MAIN:refs/heads/main"
+
+          publish_tree() {
+            branch="$1"
+            shift
+            index=$(mktemp)
+            export GIT_INDEX_FILE="$index"
+            git read-tree --empty
+            for path in "$@"; do
+              git checkout "$MAIN" -- "$path"
+            done
+            git add "$@"
+            newtree=$(git write-tree)
+            unset GIT_INDEX_FILE
+            rm -f "$index"
+            if git rev-parse --verify "origin/$branch" >/dev/null 2>&1; then
+              oldtree=$(git rev-parse "origin/$branch^{tree}")
+              if [ "$newtree" = "$oldtree" ]; then
+                echo "no changes on $branch"
+                return 0
+              fi
+              commit=$(git commit-tree "$newtree" -p "origin/$branch" -m "$MSG")
+            else
+              commit=$(git commit-tree "$newtree" -m "$MSG")
+            fi
+            git push origin "$commit:refs/heads/$branch"
+          }
+
+          publish_tree pattern pattern
+          publish_tree ipc ipc
+          publish_tree protuf protuf
